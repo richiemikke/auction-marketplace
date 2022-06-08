@@ -11,8 +11,8 @@ import './MarketAuction.sol';
 //create Market to faciliate bidding and transfer of ownership or original items using ERC-721 NFTs
 contract Market is ERC721, ERC721URIStorage {
     constructor() ERC721("Market", "MKT") public {}
-    
-   
+
+
     // this contract is designed to have the owner of this contract (foundation) to pay for most of the function calls
     //deployer of the contract - address of the foundation
     // (all but bid and withdraw)
@@ -36,7 +36,7 @@ contract Market is ERC721, ERC721URIStorage {
     function getAuction(uint token_id) public view itemRegistered(token_id) returns(MarketAuction auction) {
         return auctions[token_id];
     }
-    
+
     //pass on URI that contains metadata about the item.  only owner can call this to register the item
     //token_ids.increment();  //create new token id.. increment by 1
     //uint token_id = token_ids.current();  //unique token_id (1 higher than previous)
@@ -44,10 +44,10 @@ contract Market is ERC721, ERC721URIStorage {
         uint _id = totalSupply();
         _mint(msg.sender, _id);  //mint token and pass on id
         _setTokenURI(_id, tokenURI);  //set URI
-        createAuction(_id);  //run create aunction function
+        createAuction(_id);  //run create action function
     }
 
-    //end aunction for particular token id.  checked to see if it exists first
+    //end auction for particular token id.  checked to see if it exists first
     function endAuction(uint token_id) public onlyOwner itemRegistered(token_id) {
         MarketAuction auction = getAuction(token_id);
         auction.auctionEnd();
@@ -68,9 +68,9 @@ contract Market is ERC721, ERC721URIStorage {
         MarketAuction auction = auctions[token_id];
         return auction.pendingReturn(sender);
     }
-    
-    //allows users to send in ether and send to aunction contract
-    //function sould be public payable to accept ether
+
+    //allows users to send in ether and send to auction contract
+    //function should be public payable to accept ether
     function bid(uint token_id) public payable itemRegistered(token_id) {
         MarketAuction auction = auctions[token_id];
         //accepting the address from the msg.sender
