@@ -3,7 +3,7 @@ pragma solidity ^0.8.7;
 
 //contract to create open aunction marketplace
 contract MarketAuction {
-    address deployer;  
+    address deployer;
     address payable public beneficiary;
 
     // Current state of the auction.
@@ -41,6 +41,10 @@ contract MarketAuction {
     /// The value will only be refunded if the
     /// auction is not won.
     function bid(address payable sender) public payable {
+        require(
+            sender != address (0),
+            "Sender is invalid."
+        );
         // If the bid is not higher, send the
         // money back.
         require(
@@ -104,7 +108,7 @@ contract MarketAuction {
         // 1. Conditions
         require(!ended, "auctionEnd has already been called.");
         require(msg.sender == deployer, "You are not the auction deployer!");
-        require(highestBidder == beneficiary);
+        require(highestBidder == beneficiary, "You are not the highest bidder");
 
         // 2. Effects
         ended = true;
