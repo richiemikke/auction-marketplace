@@ -40,14 +40,15 @@ contract MarketAuction {
     /// together with this transaction.
     /// The value will only be refunded if the
     /// auction is not won.
-    function bid(address payable sender) public payable {
+    function bid(address payable sender) external payable {
         // If the bid is not higher, send the
         // money back.
         require(
             msg.value > highestBid,
             "There already is a higher bid."
         );
-
+        require(sender != address(0), "Enter a valid address");
+        require(sender != highestBidder, "You can't outbid yourself");
         require(!ended, "auctionEnd has already been called.");
 
         if (highestBid != 0) {
@@ -64,7 +65,7 @@ contract MarketAuction {
     }
 
     /// Withdraw a bid that was overbid.
-    function withdraw() public returns (bool) {
+    function withdraw() external payable returns (bool) {
         uint amount = pendingReturns[msg.sender];
         if (amount > 0) {
             // It is important to set this to zero because the recipient
@@ -72,11 +73,8 @@ contract MarketAuction {
             // before `send` returns.
             pendingReturns[msg.sender] = 0;
 
-            if (!payable(msg.sender).send(amount)) {
-                // No need to call throw here, just reset the amount owing
-                pendingReturns[msg.sender] = amount;
-                return false;
-            }
+            (bool success,)  = payable(msg.sender).call{value: amount}("");
+            require(success, "Withdrawal failed");
         }
         return true;
     }
@@ -87,7 +85,7 @@ contract MarketAuction {
 
     /// End the auction and send the highest bid
     /// to the beneficiary.
-    function auctionEnd() public {
+    function auctionEnd() external payable returns (bool) {
         // It is a good guideline to structure functions that interact
         // with other contracts (i.e. they call functions or send Ether)
         // into three phases:
@@ -104,13 +102,19 @@ contract MarketAuction {
         // 1. Conditions
         require(!ended, "auctionEnd has already been called.");
         require(msg.sender == deployer, "You are not the auction deployer!");
-        require(highestBidder == beneficiary);
 
         // 2. Effects
         ended = true;
         emit AuctionEnded(highestBidder, highestBid);
 
         // 3. Interaction / transaction
-        beneficiary.transfer(highestBid);
+        (bool success,) = beneficiary.call{value: highestBid}("");
+        require(success, "Payment to beneficiary failed");
+
+        if(success){
+            return true;
+        }
+
+        return false;
     }
 }
