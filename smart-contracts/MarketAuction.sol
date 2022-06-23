@@ -1,117 +1,109 @@
 // SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.4;
 
-//contract to create open aunction marketplace
-contract MarketAuction {
-    address deployer;  
-    address payable public beneficiary;
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+import './MarketAuction.sol';
 
-    // Current state of the auction.
-    address public highestBidder;
-    uint public highestBid;
 
-    // Allowed withdrawals of previous bids.  outbid bids.  returns are pending
-    mapping(address => uint) pendingReturns;
+//create Market to faciliate bidding and transfer of ownership or original items using ERC-721 NFTs
+contract Market is ERC721, ERC721URIStorage, Ownable {
+    constructor() ERC721("Market", "MKT") {}
+    
+   
+    using Counters for Counters.Counter;
+    Counters.Counter token_ids;
 
-    // Set to true at the end, disallows any change.
-    // By default initialized to `false`.
-    bool public ended;
+    mapping(uint => MarketAuction) public auctions;
 
-    // Events that will be emitted on changes.
-    event HighestBidIncreased(address bidder, uint amount);
-    event AuctionEnded(address winner, uint amount);
+    mapping(uint => bool) isAuctioned;
 
-    // The following is a so-called natspec comment,
-    // recognizable by the three slashes.
-    // It will be shown when the user is asked to
-    // confirm a transaction.
-
-    /// Create a simple auction with `_biddingTime`
-    /// seconds bidding time on behalf of the
-    /// beneficiary address `_beneficiary`.
-    constructor(
-        address payable _beneficiary
-    ) {
-        deployer = msg.sender; // set as the Marketplace
-        beneficiary = _beneficiary;
+    //item registered - check if it exists
+    modifier itemRegistered(uint token_id) {
+        require(_exists(token_id), "item not registered!");
+        _;
     }
 
-    /// Bid on the auction with the value sent
-    /// together with this transaction.
-    /// The value will only be refunded if the
-    /// auction is not won.
-    function bid(address payable sender) public payable {
-        // If the bid is not higher, send the
-        // money back.
-        require(
-            msg.value > highestBid,
-            "There already is a higher bid."
-        );
-
-        require(!ended, "auctionEnd has already been called.");
-
-        if (highestBid != 0) {
-            // Sending back the money by simply using
-            // highestBidder.send(highestBid) is a security risk
-            // because it could execute an untrusted contract.
-            // It is always safer to let the recipients
-            // withdraw their money themselves.
-            pendingReturns[highestBidder] += highestBid;
-        }
-        highestBidder = sender;
-        highestBid = msg.value;
-        emit HighestBidIncreased(sender, msg.value);
+    function createAuction(uint token_id, address _owner) public itemRegistered(token_id) onlyOwner {
+        require(!isAuctioned[token_id], "Token is already auctioned");
+        auctions[token_id] = new MarketAuction(payable(_owner));
+        isAuctioned[token_id] = true;
     }
 
-    /// Withdraw a bid that was overbid.
-    function withdraw() public returns (bool) {
-        uint amount = pendingReturns[msg.sender];
-        if (amount > 0) {
-            // It is important to set this to zero because the recipient
-            // can call this function again as part of the receiving call
-            // before `send` returns.
-            pendingReturns[msg.sender] = 0;
-
-            if (!payable(msg.sender).send(amount)) {
-                // No need to call throw here, just reset the amount owing
-                pendingReturns[msg.sender] = amount;
-                return false;
-            }
-        }
-        return true;
+    function getAuction(uint token_id) public view itemRegistered(token_id) returns(MarketAuction auction) {
+        return auctions[token_id];
+    }
+    
+    //pass on URI that contains metadata about the item.  only owner can call this to register the item
+    //token_ids.increment();  //create new token id.. increment by 1
+    //uint token_id = token_ids.current();  //unique token_id (1 higher than previous)
+    function registerItem(address _owner, string memory _tokenURI) public payable onlyOwner {
+        require(bytes(_tokenURI).length > 0, "Enter a valid token URI");
+        uint _id = token_ids.current();
+        token_ids.increment();
+        _mint(_owner, _id);  //mint token and pass on id
+        _setTokenURI(_id, _tokenURI);  //set URI
+        createAuction(_id, _owner);  //run create auction function
     }
 
-    function pendingReturn(address sender) public view returns (uint) {
-        return pendingReturns[sender];
+    //end aunction for particular token id.  itemRegistered checks if token already exists
+    function endAuction(uint token_id) public payable onlyOwner itemRegistered(token_id) {
+        MarketAuction auction = getAuction(token_id);
+        (bool success) = auction.auctionEnd();
+        require(success, "Failed to end auction");
+        safeTransferFrom(ownerOf(token_id), auction.highestBidder(), token_id);
+        isAuctioned[token_id] = false;
     }
 
-    /// End the auction and send the highest bid
-    /// to the beneficiary.
-    function auctionEnd() public returns (bool) {
-        // It is a good guideline to structure functions that interact
-        // with other contracts (i.e. they call functions or send Ether)
-        // into three phases:
-        // 1. checking conditions
-        // 2. performing actions (potentially changing conditions)
-        // 3. interacting with other contracts
-        // If these phases are mixed up, the other contract could call
-        // back into the current contract and modify the state or cause
-        // effects (ether payout) to be performed multiple times.
-        // If functions called internally include interaction with external
-        // contracts, they also have to be considered interaction with
-        // external contracts.
-
-        // 1. Conditions
-        require(!ended, "auctionEnd has already been called.");
-        require(msg.sender == deployer, "You are not the auction deployer!");
-        require(highestBidder == beneficiary);
-
-        // 2. Effects
-        ended = true;
-        emit AuctionEnded(highestBidder, highestBid);
-
-        // 3. Interaction / transaction
-        beneficiary.transfer(highestBid);
-        return ended;
+    function auctionEnded(uint token_id) public view returns(bool) {
+        MarketAuction auction = auctions[token_id];
+        return auction.ended();
     }
+
+    function highestBid(uint token_id) public view itemRegistered(token_id) returns(uint) {
+        MarketAuction auction = auctions[token_id];
+        return auction.highestBid();
+    }
+
+    function pendingReturn(uint token_id, address sender) public view itemRegistered(token_id) returns(uint) {
+        MarketAuction auction = auctions[token_id];
+        return auction.pendingReturn(sender);
+    }
+
+    function withdraw(uint token_id) public payable itemRegistered(token_id) {
+        MarketAuction auction = auctions[token_id];
+        require(auction.pendingReturn(msg.sender) > 0, "No amount to withdraw");
+        (bool success) = auction.withdraw();
+        require(success, "Withdrawal failed");
+
+    }
+    
+    //allows users to send in ether and send to aunction contract
+    //function sould be public payable to accept ether
+    function bid(uint token_id) public payable itemRegistered(token_id) {
+        MarketAuction auction = auctions[token_id];
+        //accepting the address from the msg.sender
+        auction.bid{value: msg.value}(payable(msg.sender));
+    }
+
+
+    // The following functions are overrides required by Solidity.
+
+    function _burn(uint256 tokenId) internal override(ERC721, ERC721URIStorage) {
+        super._burn(tokenId);
+    }
+
+    function tokenURI(uint256 tokenId)
+        public
+        view
+        override(ERC721, ERC721URIStorage)
+        returns (string memory)
+    {
+        return super.tokenURI(tokenId);
+    }
+
+
 }

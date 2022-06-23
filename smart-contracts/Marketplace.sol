@@ -11,16 +11,9 @@ import './MarketAuction.sol';
 
 //create Market to faciliate bidding and transfer of ownership or original items using ERC-721 NFTs
 contract Market is ERC721, ERC721URIStorage, Ownable {
-    constructor() ERC721("Market", "MKT") {
-        foundation_address = payable(msg.sender);
-    }
+    constructor() ERC721("Market", "MKT") {}
     
    
-    // this contract is designed to have the owner of this contract (foundation) to pay for most of the function calls
-    //deployer of the contract - address of the foundation
-    // (all but bid and withdraw)
-    address payable foundation_address;
-
     using Counters for Counters.Counter;
     Counters.Counter token_ids;
 
@@ -34,9 +27,9 @@ contract Market is ERC721, ERC721URIStorage, Ownable {
         _;
     }
 
-    function createAuction(uint token_id) public itemRegistered(token_id) onlyOwner {
+    function createAuction(uint token_id, address _owner) public itemRegistered(token_id) onlyOwner {
         require(!isAuctioned[token_id], "Token is already auctioned");
-        auctions[token_id] = new MarketAuction(foundation_address);
+        auctions[token_id] = new MarketAuction(payable(_owner));
         isAuctioned[token_id] = true;
     }
 
@@ -47,13 +40,13 @@ contract Market is ERC721, ERC721URIStorage, Ownable {
     //pass on URI that contains metadata about the item.  only owner can call this to register the item
     //token_ids.increment();  //create new token id.. increment by 1
     //uint token_id = token_ids.current();  //unique token_id (1 higher than previous)
-    function registerItem(string memory _tokenURI) public payable onlyOwner {
+    function registerItem(address to, string memory _tokenURI) public payable onlyOwner {
         require(bytes(_tokenURI).length > 0, "Enter a valid token URI");
         uint _id = token_ids.current();
         token_ids.increment();
-        _mint(msg.sender, _id);  //mint token and pass on id
+        _mint(to, _id);  //mint token and pass on id
         _setTokenURI(_id, _tokenURI);  //set URI
-        createAuction(_id);  //run create auction function
+        createAuction(_id, to);  //run create auction function
     }
 
     //end aunction for particular token id.  itemRegistered checks if token already exists
@@ -61,7 +54,7 @@ contract Market is ERC721, ERC721URIStorage, Ownable {
         MarketAuction auction = getAuction(token_id);
         (bool success) = auction.auctionEnd();
         require(success, "Failed to end auction");
-        safeTransferFrom(owner(), auction.highestBidder(), token_id);
+        safeTransferFrom(ownerOf(token_id), auction.highestBidder(), token_id);
         isAuctioned[token_id] = false;
     }
 
